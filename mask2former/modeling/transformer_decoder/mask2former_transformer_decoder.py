@@ -13,6 +13,7 @@ from detectron2.layers import Conv2d
 from .position_encoding import PositionEmbeddingSine
 from .maskformer_transformer_decoder import TRANSFORMER_DECODER_REGISTRY
 
+import pdb
 
 class SelfAttentionLayer(nn.Module):
 
@@ -266,9 +267,20 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
                 channels and hidden dim is identical
         """
         super().__init__()
+        # in_channels = 256
+        # mask_classification = True
+        # num_classes = 150
+        # hidden_dim = 256
+        # num_queries = 100
+        # nheads = 8
+        # dim_feedforward = 2048
+        # dec_layers = 9
+        # pre_norm = False
+        # mask_dim = 256
+        # enforce_input_project = False
 
         assert mask_classification, "Only support mask classification model"
-        self.mask_classification = mask_classification
+        self.mask_classification = mask_classification # True
 
         # positional encoding
         N_steps = hidden_dim // 2
@@ -281,13 +293,13 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
         self.transformer_cross_attention_layers = nn.ModuleList()
         self.transformer_ffn_layers = nn.ModuleList()
 
-        for _ in range(self.num_layers):
+        for _ in range(self.num_layers): # 9
             self.transformer_self_attention_layers.append(
                 SelfAttentionLayer(
                     d_model=hidden_dim,
                     nhead=nheads,
                     dropout=0.0,
-                    normalize_before=pre_norm,
+                    normalize_before=pre_norm, # False
                 )
             )
 
@@ -296,22 +308,22 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
                     d_model=hidden_dim,
                     nhead=nheads,
                     dropout=0.0,
-                    normalize_before=pre_norm,
+                    normalize_before=pre_norm, # False
                 )
             )
 
             self.transformer_ffn_layers.append(
                 FFNLayer(
                     d_model=hidden_dim,
-                    dim_feedforward=dim_feedforward,
+                    dim_feedforward=dim_feedforward, # 2048
                     dropout=0.0,
-                    normalize_before=pre_norm,
+                    normalize_before=pre_norm, # False
                 )
             )
 
         self.decoder_norm = nn.LayerNorm(hidden_dim)
 
-        self.num_queries = num_queries
+        self.num_queries = num_queries # 100
         # learnable query features
         self.query_feat = nn.Embedding(num_queries, hidden_dim)
         # learnable query p.e.
@@ -319,17 +331,18 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
 
         # level embedding (we always use 3 scales)
         self.num_feature_levels = 3
-        self.level_embed = nn.Embedding(self.num_feature_levels, hidden_dim)
+        self.level_embed = nn.Embedding(self.num_feature_levels, hidden_dim) # hidden_dim -- 256
         self.input_proj = nn.ModuleList()
+        # self.num_feature_levels -- 3
         for _ in range(self.num_feature_levels):
-            if in_channels != hidden_dim or enforce_input_project:
+            if in_channels != hidden_dim or enforce_input_project: # False
                 self.input_proj.append(Conv2d(in_channels, hidden_dim, kernel_size=1))
                 weight_init.c2_xavier_fill(self.input_proj[-1])
             else:
                 self.input_proj.append(nn.Sequential())
 
         # output FFNs
-        if self.mask_classification:
+        if self.mask_classification: # True
             self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
         self.mask_embed = MLP(hidden_dim, hidden_dim, mask_dim, 3)
 
@@ -362,15 +375,20 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
 
     def forward(self, x, mask_features, mask = None):
         # x is a list of multi-scale feature
+        # x[0].size(), x[1].size(), x[2].size()
+        # ([1, 256, 20, 27], [1, 256, 40, 54], [1, 256, 80, 108])
         assert len(x) == self.num_feature_levels
+
+        # mask_features.size() -- [1, 256, 160, 216]
+        # pp mask -- None
+
         src = []
         pos = []
         size_list = []
 
         # disable mask, it does not affect performance
         del mask
-
-        for i in range(self.num_feature_levels):
+        for i in range(self.num_feature_levels): # 3
             size_list.append(x[i].shape[-2:])
             pos.append(self.pe_layer(x[i], None).flatten(2))
             src.append(self.input_proj[i](x[i]).flatten(2) + self.level_embed.weight[i][None, :, None])
@@ -393,17 +411,19 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
         predictions_class.append(outputs_class)
         predictions_mask.append(outputs_mask)
 
-        for i in range(self.num_layers):
-            level_index = i % self.num_feature_levels
+        for i in range(self.num_layers): # 9
+            level_index = i % self.num_feature_levels # self.num_feature_levels -- 3
             attn_mask[torch.where(attn_mask.sum(-1) == attn_mask.shape[-1])] = False
             # attention: cross-attention first
+
+            # len(self.transformer_cross_attention_layers) -- 9
             output = self.transformer_cross_attention_layers[i](
                 output, src[level_index],
                 memory_mask=attn_mask,
                 memory_key_padding_mask=None,  # here we do not apply masking on padded region
                 pos=pos[level_index], query_pos=query_embed
             )
-
+            # len(self.transformer_self_attention_layers) -- 9
             output = self.transformer_self_attention_layers[i](
                 output, tgt_mask=None,
                 tgt_key_padding_mask=None,
@@ -411,10 +431,11 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
             )
             
             # FFN
+            # len(self.transformer_ffn_layers) -- 9
             output = self.transformer_ffn_layers[i](
                 output
             )
-
+            # self.forward_prediction_heads -- MultiScaleMaskedTransformerDecoder
             outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(output, mask_features, attn_mask_target_size=size_list[(i + 1) % self.num_feature_levels])
             predictions_class.append(outputs_class)
             predictions_mask.append(outputs_mask)

@@ -13,7 +13,7 @@ from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
 
 from ..transformer_decoder.maskformer_transformer_decoder import build_transformer_decoder
 from ..pixel_decoder.fpn import build_pixel_decoder
-
+import pdb
 
 @SEM_SEG_HEADS_REGISTRY.register()
 class MaskFormerHead(nn.Module):
@@ -23,8 +23,8 @@ class MaskFormerHead(nn.Module):
     def _load_from_state_dict(
         self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
     ):
-        version = local_metadata.get("version", None)
-        if version is None or version < 2:
+        version = local_metadata.get("version", None) # 2
+        if version is None or version < 2: # False
             # Do not warn if train from scratch
             scratch = True
             logger = logging.getLogger(__name__)
@@ -49,13 +49,13 @@ class MaskFormerHead(nn.Module):
         self,
         input_shape: Dict[str, ShapeSpec],
         *,
-        num_classes: int,
-        pixel_decoder: nn.Module,
+        num_classes: int, # 150
+        pixel_decoder: nn.Module, # MSDeformAttnPixelDecoder
         loss_weight: float = 1.0,
-        ignore_value: int = -1,
+        ignore_value: int = 255,
         # extra parameters
-        transformer_predictor: nn.Module,
-        transformer_in_feature: str,
+        transformer_predictor: nn.Module, # MultiScaleMaskedTransformerDecoder
+        transformer_in_feature: str, # 'multi_scale_pixel_decoder'
     ):
         """
         NOTE: this interface is experimental.
@@ -69,56 +69,92 @@ class MaskFormerHead(nn.Module):
             transformer_in_feature: input feature name to the transformer_predictor
         """
         super().__init__()
-        input_shape = sorted(input_shape.items(), key=lambda x: x[1].stride)
-        self.in_features = [k for k, v in input_shape]
-        feature_strides = [v.stride for k, v in input_shape]
-        feature_channels = [v.channels for k, v in input_shape]
+        # input_shape -- {
+        # 'res2': ShapeSpec(channels=256, height=None, width=None, stride=4), 
+        # 'res3': ShapeSpec(channels=512, height=None, width=None, stride=8), 
+        # 'res4': ShapeSpec(channels=1024, height=None, width=None, stride=16), 
+        # 'res5': ShapeSpec(channels=2048, height=None, width=None, stride=32)}
+
+        # input_shape = sorted(input_shape.items(), key=lambda x: x[1].stride)
+        # self.in_features = [k for k, v in input_shape]
+        # feature_strides = [v.stride for k, v in input_shape]
+        # feature_channels = [v.channels for k, v in input_shape]
 
         self.ignore_value = ignore_value
-        self.common_stride = 4
+        # self.common_stride = 4
         self.loss_weight = loss_weight
 
         self.pixel_decoder = pixel_decoder
         self.predictor = transformer_predictor
         self.transformer_in_feature = transformer_in_feature
+        # transformer_in_feature = 'multi_scale_pixel_decoder'
 
-        self.num_classes = num_classes
+        self.num_classes = num_classes # 150
+
 
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
+        # input_shape --
+        # {'res2': ShapeSpec(channels=256, height=None, width=None, stride=4), 
+        #  'res3': ShapeSpec(channels=512, height=None, width=None, stride=8), 
+        #  'res4': ShapeSpec(channels=1024, height=None, width=None, stride=16), 
+        #  'res5': ShapeSpec(channels=2048, height=None, width=None, stride=32)}
+
         # figure out in_channels to transformer predictor
+        # cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE -- 'multi_scale_pixel_decoder'
         if cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE == "transformer_encoder":
             transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM
         elif cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE == "pixel_embedding":
             transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.MASK_DIM
         elif cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE == "multi_scale_pixel_decoder":  # for maskformer2
-            transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM
+            transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM # 256
         else:
             transformer_predictor_in_channels = input_shape[cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE].channels
 
+        # build_pixel_decoder(cfg, input_shape)
+        #     -- MSDeformAttnPixelDecoder(...)
+        # build_transformer_decoder(...)
+        #         -- MultiScaleMaskedTransformerDecoder(...)
+
         return {
+            # cfg.MODEL.SEM_SEG_HEAD.IN_FEATURES -- ['res2', 'res3', 'res4', 'res5']
             "input_shape": {
                 k: v for k, v in input_shape.items() if k in cfg.MODEL.SEM_SEG_HEAD.IN_FEATURES
             },
-            "ignore_value": cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
-            "num_classes": cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES,
+            "ignore_value": cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE, # 255
+            "num_classes": cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES, # 150
             "pixel_decoder": build_pixel_decoder(cfg, input_shape),
-            "loss_weight": cfg.MODEL.SEM_SEG_HEAD.LOSS_WEIGHT,
-            "transformer_in_feature": cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE,
+            "loss_weight": cfg.MODEL.SEM_SEG_HEAD.LOSS_WEIGHT, # 1.0
+            "transformer_in_feature": cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE, # 'multi_scale_pixel_decoder'
             "transformer_predictor": build_transformer_decoder(
                 cfg,
-                transformer_predictor_in_channels,
+                transformer_predictor_in_channels, # 256
                 mask_classification=True,
             ),
         }
 
     def forward(self, features, mask=None):
+        # features.keys() -- dict_keys(['res2', 'res3', 'res4', 'res5'])
+        # mask -- None
+        # features['res2'].size() -- [1, 256, 160, 216]
+        # features['res3'].size() -- [1, 512, 80, 108]
+        # features['res4'].size() -- [1, 1024, 40, 54]
+        # features['res5'].size() -- [1, 2048, 20, 27]
+
+        # out = self.layers(features, mask)
+        # out.keys() -- dict_keys(['pred_logits', 'pred_masks', 'aux_outputs'])
+        # out['pred_logits'].size() -- [1, 100, 151]
+        # out['pred_masks'].size() -- [1, 100, 160, 216]
+        # len(out['aux_outputs']) -- 9
+        # out['aux_outputs'][0 --9 ].keys() -- dict_keys(['pred_logits', 'pred_masks'])
+
         return self.layers(features, mask)
 
     def layers(self, features, mask=None):
         mask_features, transformer_encoder_features, multi_scale_features = self.pixel_decoder.forward_features(features)
         if self.transformer_in_feature == "multi_scale_pixel_decoder":
             predictions = self.predictor(multi_scale_features, mask_features, mask)
+            # self.predictor -- MultiScaleMaskedTransformerDecoder
         else:
             if self.transformer_in_feature == "transformer_encoder":
                 assert (

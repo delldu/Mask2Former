@@ -12,7 +12,7 @@ from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
 
 from ..transformer_decoder.maskformer_transformer_decoder import StandardTransformerDecoder
 from ..pixel_decoder.fpn import build_pixel_decoder
-
+import pdb
 
 @SEM_SEG_HEADS_REGISTRY.register()
 class PerPixelBaselineHead(nn.Module):
@@ -22,6 +22,8 @@ class PerPixelBaselineHead(nn.Module):
     def _load_from_state_dict(
         self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
     ):
+        pdb.set_trace()
+
         version = local_metadata.get("version", None)
         if version is None or version < 2:
             logger = logging.getLogger(__name__)
@@ -64,6 +66,8 @@ class PerPixelBaselineHead(nn.Module):
             ignore_value: category id to be ignored during training.
         """
         super().__init__()
+        pdb.set_trace()
+
         input_shape = sorted(input_shape.items(), key=lambda x: x[1].stride)
         self.in_features = [k for k, v in input_shape]
         feature_strides = [v.stride for k, v in input_shape]
@@ -79,8 +83,11 @@ class PerPixelBaselineHead(nn.Module):
         )
         weight_init.c2_msra_fill(self.predictor)
 
+        pdb.set_trace()
+
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
+        pdb.set_trace()
         return {
             "input_shape": {
                 k: v for k, v in input_shape.items() if k in cfg.MODEL.SEM_SEG_HEAD.IN_FEATURES
@@ -128,7 +135,10 @@ class PerPixelBaselinePlusHead(PerPixelBaselineHead):
     def _load_from_state_dict(
         self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
     ):
+        pdb.set_trace()
+
         version = local_metadata.get("version", None)
+
         if version is None or version < 2:
             # Do not warn if train from scratch
             scratch = True
@@ -191,8 +201,11 @@ class PerPixelBaselinePlusHead(PerPixelBaselineHead):
         self.transformer_in_feature = transformer_in_feature
         self.deep_supervision = deep_supervision
 
+        pdb.set_trace()
+
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
+        pdb.set_trace()
         ret = super().from_config(cfg, input_shape)
         ret["transformer_in_feature"] = cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE
         if cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE == "transformer_encoder":
@@ -229,6 +242,8 @@ class PerPixelBaselinePlusHead(PerPixelBaselineHead):
             return x, {}
 
     def layers(self, features):
+        pdb.set_trace()
+        
         mask_features, transformer_encoder_features, _ = self.pixel_decoder.forward_features(features)
         if self.transformer_in_feature == "transformer_encoder":
             assert (

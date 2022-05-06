@@ -15,7 +15,7 @@ from detectron2.utils.memory import retry_if_cuda_oom
 
 from .modeling.criterion import SetCriterion
 from .modeling.matcher import HungarianMatcher
-
+import pdb
 
 @META_ARCH_REGISTRY.register()
 class MaskFormer(nn.Module):
@@ -69,6 +69,24 @@ class MaskFormer(nn.Module):
             test_topk_per_image: int, instance segmentation parameter, keep topk instances per image
         """
         super().__init__()
+        # xxxx8888
+        # size_divisibility = 32
+        # sem_seg_postprocess_before_inference = True
+        # pixel_mean = [123.675, 116.28, 103.53]
+        # pixel_std = [58.395, 57.12, 57.375]
+        # semantic_on = True
+        # panoptic_on = True
+        # instance_on = True
+        # test_topk_per_image = 100
+        # num_classes: 150
+        # eos_coef: 0.1
+        # num_points: 12544
+        # oversample_ratio: 3.0
+        # importance_sample_ratio: 0.75
+        # num_queries = 100
+        # object_mask_threshold = 0.8
+        # overlap_threshold = 0.8
+
         self.backbone = backbone
         self.sem_seg_head = sem_seg_head
         self.criterion = criterion
@@ -90,7 +108,7 @@ class MaskFormer(nn.Module):
         self.panoptic_on = panoptic_on
         self.test_topk_per_image = test_topk_per_image
 
-        if not self.semantic_on:
+        if not self.semantic_on: # False
             assert self.sem_seg_postprocess_before_inference
 
     @classmethod
@@ -99,26 +117,26 @@ class MaskFormer(nn.Module):
         sem_seg_head = build_sem_seg_head(cfg, backbone.output_shape())
 
         # Loss parameters:
-        deep_supervision = cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION
-        no_object_weight = cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT
+        deep_supervision = cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION # True
+        no_object_weight = cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT # 0.1
 
         # loss weights
-        class_weight = cfg.MODEL.MASK_FORMER.CLASS_WEIGHT
-        dice_weight = cfg.MODEL.MASK_FORMER.DICE_WEIGHT
-        mask_weight = cfg.MODEL.MASK_FORMER.MASK_WEIGHT
+        class_weight = cfg.MODEL.MASK_FORMER.CLASS_WEIGHT # 2.0
+        dice_weight = cfg.MODEL.MASK_FORMER.DICE_WEIGHT # 5.0
+        mask_weight = cfg.MODEL.MASK_FORMER.MASK_WEIGHT # 5.0
 
         # building criterion
         matcher = HungarianMatcher(
             cost_class=class_weight,
             cost_mask=mask_weight,
             cost_dice=dice_weight,
-            num_points=cfg.MODEL.MASK_FORMER.TRAIN_NUM_POINTS,
+            num_points=cfg.MODEL.MASK_FORMER.TRAIN_NUM_POINTS, # 12544 ?
         )
 
         weight_dict = {"loss_ce": class_weight, "loss_mask": mask_weight, "loss_dice": dice_weight}
 
         if deep_supervision:
-            dec_layers = cfg.MODEL.MASK_FORMER.DEC_LAYERS
+            dec_layers = cfg.MODEL.MASK_FORMER.DEC_LAYERS # 10
             aux_weight_dict = {}
             for i in range(dec_layers - 1):
                 aux_weight_dict.update({k + f"_{i}": v for k, v in weight_dict.items()})
@@ -136,28 +154,28 @@ class MaskFormer(nn.Module):
             oversample_ratio=cfg.MODEL.MASK_FORMER.OVERSAMPLE_RATIO,
             importance_sample_ratio=cfg.MODEL.MASK_FORMER.IMPORTANCE_SAMPLE_RATIO,
         )
-
+        # sem_seg_head -- MaskFormerHead
         return {
             "backbone": backbone,
             "sem_seg_head": sem_seg_head,
             "criterion": criterion,
-            "num_queries": cfg.MODEL.MASK_FORMER.NUM_OBJECT_QUERIES,
-            "object_mask_threshold": cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD,
-            "overlap_threshold": cfg.MODEL.MASK_FORMER.TEST.OVERLAP_THRESHOLD,
+            "num_queries": cfg.MODEL.MASK_FORMER.NUM_OBJECT_QUERIES, # 100
+            "object_mask_threshold": cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD, # 0.8
+            "overlap_threshold": cfg.MODEL.MASK_FORMER.TEST.OVERLAP_THRESHOLD, # 0.8
             "metadata": MetadataCatalog.get(cfg.DATASETS.TRAIN[0]),
-            "size_divisibility": cfg.MODEL.MASK_FORMER.SIZE_DIVISIBILITY,
+            "size_divisibility": cfg.MODEL.MASK_FORMER.SIZE_DIVISIBILITY, # 32
             "sem_seg_postprocess_before_inference": (
                 cfg.MODEL.MASK_FORMER.TEST.SEM_SEG_POSTPROCESSING_BEFORE_INFERENCE
                 or cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON
                 or cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON
             ),
-            "pixel_mean": cfg.MODEL.PIXEL_MEAN,
-            "pixel_std": cfg.MODEL.PIXEL_STD,
+            "pixel_mean": cfg.MODEL.PIXEL_MEAN, # [123.675, 116.28, 103.53]
+            "pixel_std": cfg.MODEL.PIXEL_STD, # [58.395, 57.12, 57.375]
             # inference
             "semantic_on": cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON,
             "instance_on": cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON,
             "panoptic_on": cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON,
-            "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
+            "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE, # 100
         }
 
     @property
@@ -190,7 +208,11 @@ class MaskFormer(nn.Module):
                     segments_info (list[dict]): Describe each segment in `panoptic_seg`.
                         Each dict contains keys "id", "category_id", "isthing".
         """
+        # batched_inputs[0].keys() -- dict_keys(['image', 'height', 'width'])
+
         images = [x["image"].to(self.device) for x in batched_inputs]
+        # images[0].size() -- [3, 640, 853], [0.0, 255.0]
+
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
 
@@ -225,7 +247,6 @@ class MaskFormer(nn.Module):
                 mode="bilinear",
                 align_corners=False,
             )
-
             del outputs
 
             processed_results = []
@@ -236,26 +257,26 @@ class MaskFormer(nn.Module):
                 width = input_per_image.get("width", image_size[1])
                 processed_results.append({})
 
-                if self.sem_seg_postprocess_before_inference:
+                if self.sem_seg_postprocess_before_inference: # True
                     mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
                         mask_pred_result, image_size, height, width
                     )
                     mask_cls_result = mask_cls_result.to(mask_pred_result)
 
                 # semantic segmentation inference
-                if self.semantic_on:
+                if self.semantic_on: # True
                     r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)
                     if not self.sem_seg_postprocess_before_inference:
                         r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
                     processed_results[-1]["sem_seg"] = r
 
                 # panoptic segmentation inference
-                if self.panoptic_on:
+                if self.panoptic_on: # True
                     panoptic_r = retry_if_cuda_oom(self.panoptic_inference)(mask_cls_result, mask_pred_result)
                     processed_results[-1]["panoptic_seg"] = panoptic_r
                 
                 # instance segmentation inference
-                if self.instance_on:
+                if self.instance_on: # True
                     instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
                     processed_results[-1]["instances"] = instance_r
 
@@ -278,15 +299,20 @@ class MaskFormer(nn.Module):
         return new_targets
 
     def semantic_inference(self, mask_cls, mask_pred):
+        # mask_cls.size() -- [100, 151]
+        # mask_pred.size() -- [100, 960, 1280]
         mask_cls = F.softmax(mask_cls, dim=-1)[..., :-1]
         mask_pred = mask_pred.sigmoid()
         semseg = torch.einsum("qc,qhw->chw", mask_cls, mask_pred)
+        # semseg.size() --[150, 960, 1280]
         return semseg
 
     def panoptic_inference(self, mask_cls, mask_pred):
+        # mask_cls.size(), mask_pred.size() --[100, 151], [100, 960, 1280]
         scores, labels = F.softmax(mask_cls, dim=-1).max(-1)
         mask_pred = mask_pred.sigmoid()
-
+        # self.object_mask_threshold -- 0.8
+        # self.sem_seg_head.num_classes -- 150
         keep = labels.ne(self.sem_seg_head.num_classes) & (scores > self.object_mask_threshold)
         cur_scores = scores[keep]
         cur_classes = labels[keep]
@@ -302,22 +328,31 @@ class MaskFormer(nn.Module):
 
         current_segment_id = 0
 
-        if cur_masks.shape[0] == 0:
+        if cur_masks.shape[0] == 0: # False
             # We didn't detect any mask :(
             return panoptic_seg, segments_info
         else:
             # take argmax
             cur_mask_ids = cur_prob_masks.argmax(0)
             stuff_memory_list = {}
-            for k in range(cur_classes.shape[0]):
+            for k in range(cur_classes.shape[0]): # cur_classes.shape -- [7]
                 pred_class = cur_classes[k].item()
+
+                # self.metadata.thing_dataset_id_to_contiguous_id.values()
+                # dict_values([7, 8, 10, 12, 14, 15, 18, 19, 20, 22, 23, 24, 27, 30, 31, 32,
+                #  33, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 47, 49, 50, 53, 55, 56, 57, 58,
+                #  62, 64, 65, 66, 67, 69, 70, 71, 72, 73, 74, 75, 76, 78, 80, 81, 82, 83, 85, 
+                #  86, 87, 88, 89, 90, 92, 93, 95, 97, 98, 102, 103, 104, 107, 108, 110, 111, 
+                #  112, 115, 116, 118, 119, 120, 121, 123, 124, 125, 126, 127, 129, 130, 132, 
+                #  133, 134, 135, 136, 137, 138, 139, 142, 143, 144, 146, 147, 148, 149])
+
                 isthing = pred_class in self.metadata.thing_dataset_id_to_contiguous_id.values()
                 mask_area = (cur_mask_ids == k).sum().item()
                 original_area = (cur_masks[k] >= 0.5).sum().item()
                 mask = (cur_mask_ids == k) & (cur_masks[k] >= 0.5)
 
                 if mask_area > 0 and original_area > 0 and mask.sum().item() > 0:
-                    if mask_area / original_area < self.overlap_threshold:
+                    if mask_area / original_area < self.overlap_threshold: # self.overlap_threshold -- 0.8
                         continue
 
                     # merge stuff regions
@@ -338,6 +373,22 @@ class MaskFormer(nn.Module):
                             "category_id": int(pred_class),
                         }
                     )
+            # panoptic_seg.size() -- [960, 1280]
+            # len(segments_info) -- 7
+            # (Pdb) segments_info[0]
+            # {'id': 1, 'isthing': False, 'category_id': 17}
+            # (Pdb) segments_info[1]
+            # {'id': 2, 'isthing': False, 'category_id': 6}
+            # (Pdb) segments_info[2]
+            # {'id': 3, 'isthing': False, 'category_id': 1}
+            # (Pdb) segments_info[3]
+            # {'id': 4, 'isthing': False, 'category_id': 0}
+            # (Pdb) segments_info[4]
+            # {'id': 5, 'isthing': False, 'category_id': 9}
+            # (Pdb) segments_info[5]
+            # {'id': 6, 'isthing': False, 'category_id': 2}
+            # (Pdb) segments_info[6]
+            # {'id': 7, 'isthing': False, 'category_id': 4}
 
             return panoptic_seg, segments_info
 

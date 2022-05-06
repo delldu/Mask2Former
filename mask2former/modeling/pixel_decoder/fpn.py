@@ -17,19 +17,23 @@ from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
 from ..transformer_decoder.position_encoding import PositionEmbeddingSine
 from ..transformer_decoder.transformer import TransformerEncoder, TransformerEncoderLayer, _get_clones, _get_activation_fn
 
+import pdb
 
 def build_pixel_decoder(cfg, input_shape):
     """
     Build a pixel decoder from `cfg.MODEL.MASK_FORMER.PIXEL_DECODER_NAME`.
     """
-    name = cfg.MODEL.SEM_SEG_HEAD.PIXEL_DECODER_NAME
+    name = cfg.MODEL.SEM_SEG_HEAD.PIXEL_DECODER_NAME # 'MSDeformAttnPixelDecoder'
     model = SEM_SEG_HEADS_REGISTRY.get(name)(cfg, input_shape)
+    #  model -- MSDeformAttnPixelDecoder()
+
     forward_features = getattr(model, "forward_features", None)
     if not callable(forward_features):
         raise ValueError(
             "Only SEM_SEG_HEADS with forward_features method can be used as pixel decoder. "
             f"Please implement forward_features for {name} to only return mask features."
         )
+
     return model
 
 
@@ -121,6 +125,7 @@ class BasePixelDecoder(nn.Module):
         weight_init.c2_xavier_fill(self.mask_features)
 
         self.maskformer_num_feature_levels = 3  # always use 3 scales
+        pdb.set_trace()
 
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):

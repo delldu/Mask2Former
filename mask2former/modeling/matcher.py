@@ -10,7 +10,7 @@ from torch import nn
 from torch.cuda.amp import autocast
 
 from detectron2.projects.point_rend.point_features import point_sample
-
+import pdb
 
 def batch_dice_loss(inputs: torch.Tensor, targets: torch.Tensor):
     """
@@ -91,6 +91,10 @@ class HungarianMatcher(nn.Module):
         assert cost_class != 0 or cost_mask != 0 or cost_dice != 0, "all costs cant be 0"
 
         self.num_points = num_points
+        # cost_class = 2.0
+        # cost_mask = 5.0
+        # cost_dice = 5.0
+        # num_points = 12544        
 
     @torch.no_grad()
     def memory_efficient_forward(self, outputs, targets):
